@@ -1,7 +1,8 @@
 import type Redis from 'ioredis';
 import { env } from '../config/env';
 
-const WINDOW_SEC = 60;
+const ATK_WINDOW_SEC = 3600;   // 1 hour — attack counts persist long enough to catch slow attackers
+const REJ_WINDOW_SEC = 300;    // 5 minutes — rejection counts window
 const PREF_REJ = 'shield:ip:rej:';
 const PREF_ATK = 'shield:ip:atk:';
 const PREF_BLOCK = 'shield:ip:block:';
@@ -26,7 +27,8 @@ export class IpReputationService {
   async recordRejected(ip: string): Promise<{ warn: boolean; blocked: boolean }> {
     const key = PREF_REJ + ip;
     const n = await this.redis.incr(key);
-    if (n === 1) await this.redis.expire(key, WINDOW_SEC);
+    // Sliding window: reset the timer on every new rejection
+    await this.redis.expire(key, REJ_WINDOW_SEC);
 
     let blocked = false;
     let warn = false;
@@ -42,7 +44,8 @@ export class IpReputationService {
   async recordAttack(ip: string, vector: string): Promise<{ permanent: boolean; blocked: boolean }> {
     const key = PREF_ATK + ip;
     const n = await this.redis.incr(key);
-    if (n === 1) await this.redis.expire(key, WINDOW_SEC);
+    // Sliding window: reset the timer on every new attack so slow attackers still get caught
+    await this.redis.expire(key, ATK_WINDOW_SEC);
 
     let permanent = false;
     let blocked = false;
