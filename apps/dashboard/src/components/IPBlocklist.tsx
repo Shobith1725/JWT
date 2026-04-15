@@ -4,15 +4,17 @@ export function IPBlocklist({
   rows,
   apiBase,
   onUnblock,
+  extraHeaders = {},
 }: {
   rows: BlockedIpRow[];
   apiBase: string;
   onUnblock?: () => void;
+  extraHeaders?: HeadersInit;
 }) {
   const unblock = async (ip: string) => {
     await fetch(`${apiBase}/api/stats/unblock-ip`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders as Record<string, string>) },
       body: JSON.stringify({ ip }),
     });
     onUnblock?.();

@@ -1,30 +1,30 @@
 import type Redis from 'ioredis';
-
-const TOTAL = 'shield:stats:total_requests';
-const BLOCKED = 'shield:stats:total_blocked';
-const ATTACK = (v: string) => `shield:stats:attack:${v}`;
-const START = 'shield:stats:started_at';
+import { getTenantPrefix } from './tenant_prefix';
 
 export class StatsService {
   constructor(private readonly redis: Redis) {}
 
-  async ensureStarted(): Promise<void> {
-    const exists = await this.redis.exists(START);
+  async ensureStarted(tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    const key = `shield:${p}stats:started_at`;
+    const exists = await this.redis.exists(key);
     if (!exists) {
-      await this.redis.set(START, String(Date.now()));
+      await this.redis.set(key, String(Date.now()));
     }
   }
 
-  async incrementRequests(): Promise<void> {
-    await this.redis.incr(TOTAL);
+  async incrementRequests(tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    await this.redis.incr(`shield:${p}stats:total_requests`);
   }
 
-  async incrementBlocked(vector: string): Promise<void> {
-    await this.redis.incr(BLOCKED);
-    await this.redis.incr(ATTACK(vector));
+  async incrementBlocked(vector: string, tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    await this.redis.incr(`shield:${p}stats:total_blocked`);
+    await this.redis.incr(`shield:${p}stats:attack:${vector}`);
   }
 
-  async getSummary(): Promise<{
+  async getSummary(tenantId?: string): Promise<{
     total_requests: number;
     total_blocked: number;
     block_rate_percent: number;
@@ -32,18 +32,19 @@ export class StatsService {
     blocked_ips: number;
     uptime_seconds: number;
   }> {
-    const started = await this.redis.get(START);
+    const p = getTenantPrefix(tenantId);
+    const started = await this.redis.get(`shield:${p}stats:started_at`);
     const uptime = started ? Math.floor((Date.now() - Number(started)) / 1000) : 0;
-    const total = Number((await this.redis.get(TOTAL)) ?? 0);
-    const blocked = Number((await this.redis.get(BLOCKED)) ?? 0);
-    const keys = await this.redis.keys('shield:stats:attack:*');
+    const total = Number((await this.redis.get(`shield:${p}stats:total_requests`)) ?? 0);
+    const blocked = Number((await this.redis.get(`shield:${p}stats:total_blocked`)) ?? 0);
+    const keys = await this.redis.keys(`shield:${p}stats:attack:*`);
     const attacks_by_type: Record<string, number> = {};
     for (const k of keys) {
       const parts = k.split(':');
       const vector = parts[parts.length - 1];
       attacks_by_type[vector] = Number((await this.redis.get(k)) ?? 0);
     }
-    const blockedKeys = await this.redis.keys('shield:ip:block:*');
+    const blockedKeys = await this.redis.keys(`shield:${p}ip:block:*`);
     const block_rate = total > 0 ? Math.round((blocked / total) * 10000) / 100 : 0;
     return {
       total_requests: total,

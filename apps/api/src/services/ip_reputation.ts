@@ -1,11 +1,8 @@
 import type Redis from 'ioredis';
 import { env } from '../config/env';
+import { getTenantPrefix } from './tenant_prefix';
 
 const WINDOW_SEC = 60;
-const PREF_REJ = 'shield:ip:rej:';
-const PREF_ATK = 'shield:ip:atk:';
-const PREF_BLOCK = 'shield:ip:block:';
-const PREF_PERM = 'shield:ip:perm:';
 
 export interface IpCheckResult {
   allowed: boolean;
@@ -15,23 +12,25 @@ export interface IpCheckResult {
 export class IpReputationService {
   constructor(private readonly redis: Redis) {}
 
-  async check(ip: string): Promise<IpCheckResult> {
-    const perm = await this.redis.get(PREF_PERM + ip);
+  async check(ip: string, tenantId?: string): Promise<IpCheckResult> {
+    const p = getTenantPrefix(tenantId);
+    const perm = await this.redis.get(`shield:${p}ip:perm:${ip}`);
     if (perm) return { allowed: false, reason: 'permanent' };
-    const block = await this.redis.get(PREF_BLOCK + ip);
+    const block = await this.redis.get(`shield:${p}ip:block:${ip}`);
     if (block) return { allowed: false, reason: 'blocked' };
     return { allowed: true };
   }
 
-  async recordRejected(ip: string): Promise<{ warn: boolean; blocked: boolean }> {
-    const key = PREF_REJ + ip;
+  async recordRejected(ip: string, tenantId?: string): Promise<{ warn: boolean; blocked: boolean }> {
+    const p = getTenantPrefix(tenantId);
+    const key = `shield:${p}ip:rej:${ip}`;
     const n = await this.redis.incr(key);
     if (n === 1) await this.redis.expire(key, WINDOW_SEC);
 
     let blocked = false;
     let warn = false;
     if (n >= env.IP_BLOCK_THRESHOLD) {
-      await this.redis.setex(PREF_BLOCK + ip, env.IP_BLOCK_DURATION_SECONDS, 'rejected_flood');
+      await this.redis.setex(`shield:${p}ip:block:${ip}`, env.IP_BLOCK_DURATION_SECONDS, 'rejected_flood');
       blocked = true;
     } else if (n >= env.IP_WARN_THRESHOLD) {
       warn = true;
@@ -39,46 +38,52 @@ export class IpReputationService {
     return { warn, blocked };
   }
 
-  async recordAttack(ip: string, vector: string): Promise<{ permanent: boolean; blocked: boolean }> {
-    const key = PREF_ATK + ip;
+  async recordAttack(ip: string, vector: string, tenantId?: string): Promise<{ permanent: boolean; blocked: boolean }> {
+    const p = getTenantPrefix(tenantId);
+    const key = `shield:${p}ip:atk:${ip}`;
     const n = await this.redis.incr(key);
     if (n === 1) await this.redis.expire(key, WINDOW_SEC);
 
     let permanent = false;
     let blocked = false;
     if (n >= env.IP_ATTACK_PERMANENT_THRESHOLD) {
-      await this.redis.set(PREF_PERM + ip, vector);
-      // Also set the block key so it appears in the dashboard
-      await this.redis.set(PREF_BLOCK + ip, `attack:${vector}`);
+      await this.redis.set(`shield:${p}ip:perm:${ip}`, vector);
+      await this.redis.set(`shield:${p}ip:block:${ip}`, `attack:${vector}`);
       permanent = true;
       blocked = true;
     }
     if (n >= env.IP_BLOCK_THRESHOLD) {
-      await this.redis.setex(PREF_BLOCK + ip, env.IP_BLOCK_DURATION_SECONDS, `attack:${vector}`);
+      await this.redis.setex(`shield:${p}ip:block:${ip}`, env.IP_BLOCK_DURATION_SECONDS, `attack:${vector}`);
       blocked = true;
     }
     return { permanent, blocked };
   }
 
-  async unblock(ip: string): Promise<void> {
-    await this.redis.del(PREF_BLOCK + ip, PREF_PERM + ip, PREF_REJ + ip, PREF_ATK + ip);
+  async unblock(ip: string, tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    await this.redis.del(
+      `shield:${p}ip:block:${ip}`,
+      `shield:${p}ip:perm:${ip}`,
+      `shield:${p}ip:rej:${ip}`,
+      `shield:${p}ip:atk:${ip}`
+    );
   }
 
-  async listBlocked(): Promise<
+  async listBlocked(tenantId?: string): Promise<
     { ip: string; reason: string; expiresAt: number | null; permanent: boolean }[]
   > {
-    // Gather both block and permanent keys
-    const blockKeys = await this.redis.keys(PREF_BLOCK + '*');
-    const permKeys = await this.redis.keys(PREF_PERM + '*');
+    const p = getTenantPrefix(tenantId);
+    const blockKeys = await this.redis.keys(`shield:${p}ip:block:*`);
+    const permKeys = await this.redis.keys(`shield:${p}ip:perm:*`);
     const seen = new Set<string>();
     const out: { ip: string; reason: string; expiresAt: number | null; permanent: boolean }[] = [];
 
     for (const k of blockKeys) {
-      const ip = k.slice(PREF_BLOCK.length);
+      const ip = k.slice(`shield:${p}ip:block:`.length);
       seen.add(ip);
       const reason = (await this.redis.get(k)) ?? 'unknown';
       const ttl = await this.redis.ttl(k);
-      const perm = await this.redis.get(PREF_PERM + ip);
+      const perm = await this.redis.get(`shield:${p}ip:perm:${ip}`);
       out.push({
         ip,
         reason,
@@ -87,17 +92,11 @@ export class IpReputationService {
       });
     }
 
-    // Include permanently blocked IPs not already in the block list
     for (const k of permKeys) {
-      const ip = k.slice(PREF_PERM.length);
+      const ip = k.slice(`shield:${p}ip:perm:`.length);
       if (seen.has(ip)) continue;
       const reason = (await this.redis.get(k)) ?? 'unknown';
-      out.push({
-        ip,
-        reason,
-        expiresAt: null,
-        permanent: true,
-      });
+      out.push({ ip, reason, expiresAt: null, permanent: true });
     }
 
     return out;

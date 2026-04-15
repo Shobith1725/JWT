@@ -4,39 +4,43 @@ import type { JWTShield } from '@jwt-shield/core';
 import type { StatsService } from '../services/stats_service';
 import type { AttackLogger } from '../services/attack_logger';
 import type { IpReputationService } from '../services/ip_reputation';
+import type { TenantService } from '../services/tenant_service';
+import { tenantAuthMiddleware } from '../middleware/tenant_auth';
 import { fingerprintContextFromRequest } from '../middleware/fingerprint';
 
 export function createDashboardRouter(
   stats: StatsService,
   attacks: AttackLogger,
   ipSvc: IpReputationService,
-  shield: JWTShield
+  shield: JWTShield,
+  tenantSvc: TenantService
 ): Router {
   const router = Router();
+  const tenantAuth = tenantAuthMiddleware(tenantSvc);
 
-  router.get('/summary', async (_req, res) => {
-    const summary = await stats.getSummary();
+  router.get('/summary', tenantAuth, async (req, res) => {
+    const summary = await stats.getSummary(req.tenantId);
     res.json(summary);
   });
 
-  router.get('/events', async (req, res) => {
+  router.get('/events', tenantAuth, async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const events = await attacks.recent(limit);
+    const events = await attacks.recent(limit, req.tenantId);
     res.json(events);
   });
 
-  router.get('/blocked-ips', async (_req, res) => {
-    const list = await ipSvc.listBlocked();
+  router.get('/blocked-ips', tenantAuth, async (_req, res) => {
+    const list = await ipSvc.listBlocked(_req.tenantId);
     res.json(list);
   });
 
-  router.post('/unblock-ip', async (req, res) => {
+  router.post('/unblock-ip', tenantAuth, async (req, res) => {
     const ip = req.body?.ip;
     if (typeof ip !== 'string') {
       res.status(400).json({ error: 'ip required' });
       return;
     }
-    await ipSvc.unblock(ip);
+    await ipSvc.unblock(ip, req.tenantId);
     res.json({ success: true });
   });
 

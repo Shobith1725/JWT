@@ -15,11 +15,14 @@ import { jwtShieldMiddleware } from './middleware/jwt_shield_middleware';
 import { createAuthRouter } from './routes/auth';
 import { createProtectedRouter } from './routes/protected';
 import { createDashboardRouter } from './routes/dashboard';
+import { createEnterpriseRouter } from './routes/enterprise';
+import { TenantService } from './services/tenant_service';
 
 async function main() {
   const redis = getRedis();
   const stats = new StatsService(redis);
   const ipSvc = new IpReputationService(redis);
+  const tenantSvc = new TenantService(redis);
   await stats.ensureStarted();
 
   const app = express();
@@ -69,7 +72,9 @@ async function main() {
 
   app.use('/auth', createAuthRouter(keyMaterial.keys, keyMaterial.activeKid, shield, loginLimiter));
 
-  app.use('/api/stats', createDashboardRouter(stats, attacks, ipSvc, shield));
+  app.use('/enterprise', createEnterpriseRouter(tenantSvc, stats, attacks, ipSvc));
+
+  app.use('/api/stats', createDashboardRouter(stats, attacks, ipSvc, shield, tenantSvc));
 
   const protectedApi = express.Router();
   protectedApi.use(jwtShieldMiddleware(shield, stats, attacks, ipSvc));

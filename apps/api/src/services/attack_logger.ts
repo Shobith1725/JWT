@@ -2,8 +2,7 @@ import type Redis from 'ioredis';
 import type { Server as IOServer } from 'socket.io';
 import winston from 'winston';
 import type { AttackVector } from '@jwt-shield/core';
-
-const EVENTS_KEY = 'shield:events';
+import { getTenantPrefix } from './tenant_prefix';
 
 export interface AttackLogPayload {
   timestamp: string;
@@ -29,11 +28,13 @@ export class AttackLogger {
     private readonly io: IOServer | null
   ) {}
 
-  async log(event: AttackLogPayload): Promise<void> {
+  async log(event: AttackLogPayload, tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    const key = `shield:${p}events`;
     const line = JSON.stringify(event);
     logger.info(line);
-    await this.redis.lpush(EVENTS_KEY, line);
-    await this.redis.ltrim(EVENTS_KEY, 0, 999);
+    await this.redis.lpush(key, line);
+    await this.redis.ltrim(key, 0, 999);
     this.io?.emit('attack_event', event);
   }
 
@@ -41,8 +42,10 @@ export class AttackLogger {
     this.io?.emit('ip_blocked', { ip, permanent });
   }
 
-  async recent(limit: number): Promise<AttackLogPayload[]> {
-    const rows = await this.redis.lrange(EVENTS_KEY, 0, limit - 1);
+  async recent(limit: number, tenantId?: string): Promise<AttackLogPayload[]> {
+    const p = getTenantPrefix(tenantId);
+    const key = `shield:${p}events`;
+    const rows = await this.redis.lrange(key, 0, limit - 1);
     return rows.map((r) => JSON.parse(r) as AttackLogPayload);
   }
 }

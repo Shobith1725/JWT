@@ -22,6 +22,12 @@ const NAV_ITEMS: { id: View; label: string; icon: string }[] = [
 
 export default function App() {
   const [view, setView] = useState<View>('overview');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [activeApiKey, setActiveApiKey] = useState(() => {
+    // Load API key from localStorage on mount
+    return localStorage.getItem('shield-api-key') ?? '';
+  });
+
   const summary = useShieldStore((s) => s.summary);
   const events = useShieldStore((s) => s.events);
   const blockedIps = useShieldStore((s) => s.blockedIps);
@@ -32,11 +38,16 @@ export default function App() {
 
   useShieldSocket(API_BASE);
 
+  const buildHeaders = useCallback((): HeadersInit => {
+    return activeApiKey ? { 'X-Shield-Key': activeApiKey } : {};
+  }, [activeApiKey]);
+
   const refreshStatic = useCallback(async () => {
+    const headers = buildHeaders();
     const [sRes, eRes, bRes] = await Promise.all([
-      fetch(`${API_BASE}/api/stats/summary`),
-      fetch(`${API_BASE}/api/stats/events?limit=100`),
-      fetch(`${API_BASE}/api/stats/blocked-ips`),
+      fetch(`${API_BASE}/api/stats/summary`, { headers }),
+      fetch(`${API_BASE}/api/stats/events?limit=100`, { headers }),
+      fetch(`${API_BASE}/api/stats/blocked-ips`, { headers }),
     ]);
     const s = (await sRes.json()) as StatsSummary;
     const e = (await eRes.json()) as AttackEvent[];
@@ -44,11 +55,23 @@ export default function App() {
     setSummary(s);
     setEvents(e);
     setBlockedIps(b);
-  }, [setSummary, setEvents, setBlockedIps]);
+  }, [setSummary, setEvents, setBlockedIps, buildHeaders]);
+
+  const handleConnect = useCallback(() => {
+    const key = apiKeyInput.trim();
+    setActiveApiKey(key);
+    localStorage.setItem('shield-api-key', key);
+  }, [apiKeyInput]);
+
+  const handleDisconnect = useCallback(() => {
+    setActiveApiKey('');
+    setApiKeyInput('');
+    localStorage.removeItem('shield-api-key');
+  }, []);
 
   useEffect(() => {
     void refreshStatic();
-  }, [refreshStatic]);
+  }, [activeApiKey]); // Only re-fetch when activeApiKey changes, not when refreshStatic changes
 
   return (
     <div className="relative min-h-screen text-slate-100" style={{ background: '#060918' }}>
@@ -59,16 +82,24 @@ export default function App() {
       <div className="orb orb-3" />
 
       {/* Header */}
-      <header className="relative z-10 border-b border-white/[0.04]" style={{ background: 'rgba(6, 9, 24, 0.7)', backdropFilter: 'blur(20px)' }}>
+      <header
+        className="relative z-10 border-b border-white/[0.04]"
+        style={{ background: 'rgba(6, 9, 24, 0.7)', backdropFilter: 'blur(20px)' }}
+      >
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
+          {/* Logo */}
           <div className="flex items-center gap-3">
-            {/* Shield Logo */}
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-xl" style={{
-              background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(168, 85, 247, 0.15))',
-              border: '1px solid rgba(0, 240, 255, 0.2)',
-              boxShadow: '0 0 25px rgba(0, 240, 255, 0.1)',
-            }}>
-              <span className="text-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(0, 240, 255, 0.5))' }}>🛡️</span>
+            <div
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl"
+              style={{
+                background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(168, 85, 247, 0.15))',
+                border: '1px solid rgba(0, 240, 255, 0.2)',
+                boxShadow: '0 0 25px rgba(0, 240, 255, 0.1)',
+              }}
+            >
+              <span className="text-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(0, 240, 255, 0.5))' }}>
+                🛡️
+              </span>
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-white" style={{ letterSpacing: '0.05em' }}>
@@ -80,6 +111,7 @@ export default function App() {
             </div>
           </div>
 
+          {/* Nav + controls */}
           <div className="flex flex-wrap items-center gap-2">
             {NAV_ITEMS.map((item) => (
               <button
@@ -95,15 +127,72 @@ export default function App() {
 
             <div className="ml-3 h-5 w-px bg-white/10" />
 
-            <span className={`rounded-full px-3 py-1.5 text-[11px] font-medium ${
-              socketConnected
-                ? 'live-indicator'
-                : 'live-indicator offline-indicator'
-            }`} style={{
-              background: socketConnected ? 'rgba(34, 255, 136, 0.08)' : 'rgba(255, 51, 102, 0.08)',
-              color: socketConnected ? '#44ffaa' : '#ff6b8a',
-              border: `1px solid ${socketConnected ? 'rgba(34, 255, 136, 0.15)' : 'rgba(255, 51, 102, 0.15)'}`,
-            }}>
+            {/* Enterprise API key */}
+            {activeApiKey ? (
+              <div className="flex items-center gap-2">
+                <span
+                  className="rounded-full px-3 py-1.5 text-[11px] font-medium"
+                  style={{
+                    background: 'rgba(168, 85, 247, 0.08)',
+                    color: '#c084fc',
+                    border: '1px solid rgba(168, 85, 247, 0.2)',
+                  }}
+                >
+                  ⬡ Enterprise
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-white/5"
+                  style={{ color: '#64748b', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  placeholder="Enterprise API key…"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+                  className="rounded-lg px-3 py-1.5 text-[11px] outline-none"
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    color: '#e2e8f0',
+                    width: '200px',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleConnect}
+                  disabled={!apiKeyInput.trim()}
+                  className="rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  style={{
+                    background: 'rgba(0, 240, 255, 0.1)',
+                    border: '1px solid rgba(0, 240, 255, 0.2)',
+                    color: 'var(--neon-cyan)',
+                  }}
+                >
+                  Connect
+                </button>
+              </div>
+            )}
+
+            <div className="h-5 w-px bg-white/10" />
+
+            <span
+              className={`rounded-full px-3 py-1.5 text-[11px] font-medium ${
+                socketConnected ? 'live-indicator' : 'live-indicator offline-indicator'
+              }`}
+              style={{
+                background: socketConnected ? 'rgba(34, 255, 136, 0.08)' : 'rgba(255, 51, 102, 0.08)',
+                color: socketConnected ? '#44ffaa' : '#ff6b8a',
+                border: `1px solid ${socketConnected ? 'rgba(34, 255, 136, 0.15)' : 'rgba(255, 51, 102, 0.15)'}`,
+              }}
+            >
               {socketConnected ? 'Live' : 'Offline'}
             </span>
           </div>
@@ -123,7 +212,12 @@ export default function App() {
         )}
         {view === 'ip' && (
           <div className="fade-in">
-            <IPBlocklist rows={blockedIps} apiBase={API_BASE} onUnblock={() => void refreshStatic()} />
+            <IPBlocklist
+              rows={blockedIps}
+              apiBase={API_BASE}
+              onUnblock={() => void refreshStatic()}
+              extraHeaders={buildHeaders()}
+            />
           </div>
         )}
         {view === 'inspector' && (
