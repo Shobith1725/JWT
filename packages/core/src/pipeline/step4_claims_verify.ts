@@ -22,6 +22,7 @@ export function step4ClaimsVerify(
     decoded = jwt.verify(token, publicKey, {
       algorithms: [algorithm as jwt.Algorithm],
       complete: false,
+      clockTolerance: clockSkewSeconds,
     }) as jwt.JwtPayload;
   } catch (err) {
     const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: string }).name) : '';
@@ -40,7 +41,7 @@ export function step4ClaimsVerify(
   if (decoded.exp === undefined) {
     throw new ShieldError('invalid_claims', 'Missing exp claim', algorithm);
   }
-  if (decoded.exp <= now) {
+  if (decoded.exp <= now - skew) {
     throw new ShieldError('invalid_claims', 'Token expired', algorithm);
   }
 

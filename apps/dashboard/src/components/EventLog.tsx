@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { attackColor } from './attackColors';
 import type { AttackEvent, AttackVector } from '../types';
 
-const VECTORS: (AttackVector | 'all')[] = [
+const VECTORS: (AttackVector | 'all' | 'valid')[] = [
   'all',
+  'valid',
   'none_exploit',
   'algorithm_downgrade',
   'kid_injection',
@@ -15,13 +16,23 @@ const VECTORS: (AttackVector | 'all')[] = [
   'invalid_claims',
 ];
 
+function eventColorForRow(e: AttackEvent): string {
+  if (e.event_type === 'JWT_REQUEST_VALID' || !e.blocked) return '#22ff88';
+  return attackColor(String(e.attack_vector));
+}
+
 export function EventLog({ events }: { events: AttackEvent[] }) {
   const [vector, setVector] = useState<(typeof VECTORS)[number]>('all');
   const [ip, setIp] = useState('');
 
   const filtered = useMemo(() => {
     return events.filter((e) => {
-      if (vector !== 'all' && e.attack_vector !== vector) return false;
+      if (vector === 'valid') {
+        if (e.event_type !== 'JWT_REQUEST_VALID' && e.blocked !== false) return false;
+      } else if (vector !== 'all') {
+        if (e.attack_vector !== vector) return false;
+        if (e.event_type === 'JWT_REQUEST_VALID') return false;
+      }
       if (ip.trim() && !e.source_ip.includes(ip.trim())) return false;
       return true;
     });
@@ -48,7 +59,7 @@ export function EventLog({ events }: { events: AttackEvent[] }) {
         >
           {VECTORS.map((v) => (
             <option key={v} value={v}>
-              {v === 'all' ? '🔍 All vectors' : v}
+              {v === 'all' ? '🔍 All events' : v === 'valid' ? '✅ Valid requests' : `🚫 ${v}`}
             </option>
           ))}
         </select>
@@ -67,7 +78,7 @@ export function EventLog({ events }: { events: AttackEvent[] }) {
           <thead>
             <tr style={{ background: 'rgba(255, 255, 255, 0.02)' }}>
               <th className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Time</th>
-              <th className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Attack Vector</th>
+              <th className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Status</th>
               <th className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Source IP</th>
               <th className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">Detail</th>
             </tr>
@@ -83,28 +94,41 @@ export function EventLog({ events }: { events: AttackEvent[] }) {
                 </td>
               </tr>
             ) : (
-              filtered.map((e, i) => (
-                <tr key={`${e.timestamp}-${i}`} className="table-row-hover border-t border-white/[0.03]">
-                  <td className="px-5 py-3 font-mono text-[11px] text-slate-500">
-                    {new Date(e.timestamp).toLocaleTimeString('en-IN', { hour12: false })}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
-                      style={{
-                        backgroundColor: `${attackColor(String(e.attack_vector))}12`,
-                        color: attackColor(String(e.attack_vector)),
-                        border: `1px solid ${attackColor(String(e.attack_vector))}25`,
-                      }}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: attackColor(String(e.attack_vector)) }} />
-                      {e.attack_vector}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs font-medium text-slate-300">{e.source_ip}</td>
-                  <td className="px-5 py-3 text-xs text-slate-500">{e.detail ?? '—'}</td>
-                </tr>
-              ))
+              filtered.map((e, i) => {
+                const isValid = e.event_type === 'JWT_REQUEST_VALID' || !e.blocked;
+                const color = eventColorForRow(e);
+                const label = isValid ? 'VALID' : String(e.attack_vector);
+
+                return (
+                  <tr key={`${e.timestamp}-${i}`} className="table-row-hover border-t border-white/[0.03]">
+                    <td className="px-5 py-3 font-mono text-[11px] text-slate-500">
+                      {new Date(e.timestamp).toLocaleTimeString('en-IN', { hour12: false })}
+                    </td>
+                    <td className="px-5 py-3">
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                        style={{
+                          backgroundColor: `${color}12`,
+                          color: color,
+                          border: `1px solid ${color}25`,
+                        }}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+                        {isValid ? '✓' : '✕'} {label}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 font-mono text-xs font-medium text-slate-300">{e.source_ip}</td>
+                    <td className="px-5 py-3 text-xs text-slate-500">
+                      {e.detail ?? (isValid ? 'authenticated' : '—')}
+                      {isValid && e.subject && (
+                        <span className="ml-2 text-[10px] font-medium" style={{ color: '#88ffcc' }}>
+                          👤 {e.subject}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

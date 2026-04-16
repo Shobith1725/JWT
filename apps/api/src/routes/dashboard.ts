@@ -19,19 +19,51 @@ export function createDashboardRouter(
   const tenantAuth = tenantAuthMiddleware(tenantSvc);
 
   router.get('/summary', tenantAuth, async (req, res) => {
-    const summary = await stats.getSummary(req.tenantId);
-    res.json(summary);
+    // Always return global stats — direct attacks go to global pipeline
+    // If tenant-specific data exists, merge it in
+    const globalSummary = await stats.getSummary();
+    if (req.tenantId) {
+      const tenantSummary = await stats.getSummary(req.tenantId);
+      // Merge: add tenant-specific counts to global counts
+      globalSummary.total_requests += tenantSummary.total_requests;
+      globalSummary.total_blocked += tenantSummary.total_blocked;
+      globalSummary.total_valid += tenantSummary.total_valid;
+      for (const [k, v] of Object.entries(tenantSummary.attacks_by_type)) {
+        globalSummary.attacks_by_type[k] = (globalSummary.attacks_by_type[k] ?? 0) + v;
+      }
+      globalSummary.block_rate_percent = globalSummary.total_requests > 0
+        ? Math.round((globalSummary.total_blocked / globalSummary.total_requests) * 10000) / 100
+        : 0;
+    }
+    res.json(globalSummary);
   });
 
   router.get('/events', tenantAuth, async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const events = await attacks.recent(limit, req.tenantId);
-    res.json(events);
+    // Merge global + tenant events, sorted by timestamp
+    const globalEvents = await attacks.recent(limit);
+    if (req.tenantId) {
+      const tenantEvents = await attacks.recent(limit, req.tenantId);
+      const merged = [...globalEvents, ...tenantEvents]
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, limit);
+      res.json(merged);
+    } else {
+      res.json(globalEvents);
+    }
   });
 
   router.get('/blocked-ips', tenantAuth, async (_req, res) => {
-    const list = await ipSvc.listBlocked(_req.tenantId);
-    res.json(list);
+    // Always show global blocked IPs (direct attacks block globally)
+    const globalList = await ipSvc.listBlocked();
+    if (_req.tenantId) {
+      const tenantList = await ipSvc.listBlocked(_req.tenantId);
+      const seen = new Set(globalList.map(r => r.ip));
+      for (const r of tenantList) {
+        if (!seen.has(r.ip)) globalList.push(r);
+      }
+    }
+    res.json(globalList);
   });
 
   router.post('/unblock-ip', tenantAuth, async (req, res) => {
@@ -40,7 +72,10 @@ export function createDashboardRouter(
       res.status(400).json({ error: 'ip required' });
       return;
     }
-    await ipSvc.unblock(ip, req.tenantId);
+    await ipSvc.unblock(ip);
+    if (req.tenantId) {
+      await ipSvc.unblock(ip, req.tenantId);
+    }
     res.json({ success: true });
   });
 

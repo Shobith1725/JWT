@@ -1,14 +1,14 @@
 import type { StatsSummary } from '../types';
 
-const ICONS = ['⚡', '🚫', '📊', '⏱'];
-const GLOWS = ['stat-glow-cyan', 'stat-glow-red', 'stat-glow-orange', 'stat-glow-green'];
-const COLORS = ['#00f0ff', '#ff3366', '#ff8800', '#22ff88'];
+const ICONS = ['⚡', '✅', '🚫', '📊', '⏱'];
+const GLOWS = ['stat-glow-cyan', 'stat-glow-green', 'stat-glow-red', 'stat-glow-orange', 'stat-glow-purple'];
+const COLORS = ['#00f0ff', '#22ff88', '#ff3366', '#ff8800', '#a855f7'];
 
 export function StatsCards({ summary }: { summary: StatsSummary | null }) {
   if (!summary) {
     return (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+        {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="glass-card shimmer h-28" />
         ))}
       </div>
@@ -17,6 +17,7 @@ export function StatsCards({ summary }: { summary: StatsSummary | null }) {
 
   const cards = [
     { label: 'Total Requests', value: summary.total_requests.toLocaleString(), sub: 'Incoming traffic' },
+    { label: 'Valid Accepted', value: (summary.total_valid ?? 0).toLocaleString(), sub: 'Tokens authenticated' },
     { label: 'Threats Blocked', value: summary.total_blocked.toLocaleString(), sub: 'Attacks neutralized' },
     { label: 'Block Rate', value: `${summary.block_rate_percent}%`, sub: 'Protection efficiency' },
     {
@@ -27,7 +28,7 @@ export function StatsCards({ summary }: { summary: StatsSummary | null }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
       {cards.map((c, i) => (
         <div
           key={c.label}

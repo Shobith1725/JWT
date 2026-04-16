@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import path from 'path';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import rateLimit from 'express-rate-limit';
@@ -29,7 +30,7 @@ async function main() {
   const server = http.createServer(app);
   const allowedOrigins = env.DASHBOARD_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
   const io = new Server(server, {
-    cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+    cors: { origin: '*', methods: ['GET', 'POST'] },
   });
 
   const attacks = new AttackLogger(redis, io);
@@ -48,27 +49,43 @@ async function main() {
     clockSkewSeconds: 30,
   });
 
+  // Trust 1 reverse proxy hop (ngrok, cloudflared) so req.ip reads X-Forwarded-For correctly
+  app.set('trust proxy', 1);
+
   app.use(
     cors({
-      origin: allowedOrigins,
+      origin: (origin, cb) => {
+        // Allow requests with no origin (curl, Postman, server-to-server)
+        if (!origin) return cb(null, true);
+        // Allow configured origins
+        if (allowedOrigins.some((o) => origin.startsWith(o))) return cb(null, true);
+        // Allow any ngrok, cloudflared, or localhost origin
+        if (/^https?:\/\/(.*\.(ngrok-free\.app|ngrok\.io|trycloudflare\.com)|localhost(:\d+)?)/.test(origin)) {
+          return cb(null, true);
+        }
+        cb(null, false);
+      },
       credentials: true,
     })
   );
   app.use(express.json());
   app.use(ipBlockerMiddleware(ipSvc));
 
-  const loginLimiter = rateLimit({
+  const rateLimitOptions: Parameters<typeof rateLimit>[0] = {
     windowMs: 60_000,
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
-    ...(!env.REDIS_MEMORY && {
-      store: new RedisStore({
-        sendCommand: (command: string, ...args: string[]) =>
-          redis.call(command, ...args) as Promise<RedisReply>,
-      }),
-    }),
-  });
+  };
+
+  if (!env.REDIS_MEMORY) {
+    rateLimitOptions.store = new RedisStore({
+      sendCommand: (command: string, ...args: string[]) =>
+        redis.call(command, ...args) as Promise<RedisReply>,
+    });
+  }
+
+  const loginLimiter = rateLimit(rateLimitOptions);
 
   app.use('/auth', createAuthRouter(keyMaterial.keys, keyMaterial.activeKid, shield, loginLimiter));
 
@@ -97,6 +114,9 @@ async function main() {
       io.to('stats').emit('stats_update', summary);
     })();
   }, 5000);
+
+  // Serve demo website at root
+  app.use(express.static(path.join(__dirname, '..', 'public')));
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true });

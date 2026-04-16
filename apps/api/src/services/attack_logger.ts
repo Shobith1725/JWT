@@ -4,9 +4,11 @@ import winston from 'winston';
 import type { AttackVector } from '@jwt-shield/core';
 import { getTenantPrefix } from './tenant_prefix';
 
+export type ShieldEventType = 'JWT_ATTACK_BLOCKED' | 'JWT_REQUEST_VALID';
+
 export interface AttackLogPayload {
   timestamp: string;
-  event_type: 'JWT_ATTACK_BLOCKED';
+  event_type: ShieldEventType;
   attack_vector: AttackVector | string;
   source_ip: string;
   attempted_algorithm: string | null;
@@ -14,6 +16,8 @@ export interface AttackLogPayload {
   user_agent: string;
   blocked: boolean;
   detail?: string;
+  /** Subject from the JWT payload — only populated for valid requests */
+  subject?: string;
 }
 
 const logger = winston.createLogger({
@@ -35,7 +39,12 @@ export class AttackLogger {
     logger.info(line);
     await this.redis.lpush(key, line);
     await this.redis.ltrim(key, 0, 999);
-    this.io?.emit('attack_event', event);
+    // Emit the right socket event based on type
+    if (event.event_type === 'JWT_ATTACK_BLOCKED') {
+      this.io?.emit('attack_event', event);
+    } else {
+      this.io?.emit('valid_event', event);
+    }
   }
 
   emitIpBlocked(ip: string, permanent: boolean): void {

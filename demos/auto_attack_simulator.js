@@ -179,9 +179,11 @@ async function sendMaliciousToken(token, label) {
 
 async function doValidRequest() {
   try {
+    // Use consistent headers for login and request (fingerprint binding matches User-Agent + IP)
+    const consistentHeaders = fakeHeaders();
     const loginRes = await fetch(`${API}/auth/login`, {
       method: 'POST',
-      headers: fakeHeaders(),
+      headers: consistentHeaders,
       body: JSON.stringify({ username: 'demo', password: 'demo' }),
     });
     const { token } = await loginRes.json();
@@ -189,7 +191,7 @@ async function doValidRequest() {
 
     const res = await fetch(`${API}/api/data`, {
       method: 'POST',
-      headers: { ...fakeHeaders(), Authorization: `Bearer ${token}` },
+      headers: { ...consistentHeaders, Authorization: `Bearer ${token}` },
     });
     const body = await res.text();
     console.log(`[${timestamp()}] ✅ Legitimate Request              → ✅ ${res.status} ${body.slice(0, 60)}`);
@@ -200,9 +202,11 @@ async function doValidRequest() {
 
 async function doReplayAttack() {
   try {
+    // Use consistent headers for login and both requests
+    const consistentHeaders = fakeHeaders();
     const loginRes = await fetch(`${API}/auth/login`, {
       method: 'POST',
-      headers: fakeHeaders(),
+      headers: consistentHeaders,
       body: JSON.stringify({ username: 'demo', password: 'demo' }),
     });
     const { token } = await loginRes.json();
@@ -211,14 +215,14 @@ async function doReplayAttack() {
     // First use — should succeed
     await fetch(`${API}/api/data`, {
       method: 'POST',
-      headers: { ...fakeHeaders(), Authorization: `Bearer ${token}` },
+      headers: { ...consistentHeaders, Authorization: `Bearer ${token}` },
     });
 
     // Replay — should be blocked
     await sleep(100);
     const res = await fetch(`${API}/api/data`, {
       method: 'POST',
-      headers: { ...fakeHeaders(), Authorization: `Bearer ${token}` },
+      headers: { ...consistentHeaders, Authorization: `Bearer ${token}` },
     });
     const body = await res.text();
     console.log(`[${timestamp()}] 🔁 Replay Attack                   → 🛡️ BLOCKED  ${body.slice(0, 60)}`);

@@ -3,7 +3,25 @@ import { z } from 'zod';
 import path from 'path';
 import fs from 'fs';
 
-const root = path.join(__dirname, '..', '..');
+/** Resolve the apps/api root reliably regardless of how tsx resolves __dirname. */
+function findApiRoot(): string {
+  // Candidate 1: __dirname-based (works in normal CJS mode)
+  const candidate1 = path.join(__dirname, '..', '..');
+  // Candidate 2: process.cwd() (works when run from monorepo root via pnpm filter)
+  const candidate2 = path.resolve(process.cwd(), 'apps', 'api');
+  // Candidate 3: process.cwd() IS the api dir
+  const candidate3 = process.cwd();
+
+  for (const c of [candidate1, candidate2, candidate3]) {
+    if (fs.existsSync(path.join(c, '.env')) || fs.existsSync(path.join(c, 'package.json'))) {
+      return c;
+    }
+  }
+  // Fallback
+  return candidate1;
+}
+
+const root = findApiRoot();
 dotenvConfig({ path: path.join(root, '.env') });
 
 const envSchema = z.object({

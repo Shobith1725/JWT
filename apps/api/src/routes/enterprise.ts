@@ -111,6 +111,23 @@ export function createEnterpriseRouter(
         if (ipResult.blocked || ipResult.permanent) {
           attacks.emitIpBlocked(ip, ipResult.permanent);
         }
+      } else {
+        // Valid request — count it
+        await stats.incrementValid(tenantId);
+
+        const payload: AttackLogPayload = {
+          timestamp: typeof ev.timestamp === 'string' ? ev.timestamp : new Date().toISOString(),
+          event_type: 'JWT_REQUEST_VALID',
+          attack_vector: 'none',
+          source_ip: ip,
+          attempted_algorithm: null,
+          token_fingerprint: token,
+          user_agent: typeof ev.user_agent === 'string' ? ev.user_agent : '',
+          blocked: false,
+          detail: typeof ev.detail === 'string' ? ev.detail : 'Authenticated',
+          subject: typeof ev.subject === 'string' ? ev.subject : undefined,
+        };
+        await attacks.log(payload, tenantId);
       }
 
       accepted++;

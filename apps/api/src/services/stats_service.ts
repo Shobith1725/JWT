@@ -18,6 +18,11 @@ export class StatsService {
     await this.redis.incr(`shield:${p}stats:total_requests`);
   }
 
+  async incrementValid(tenantId?: string): Promise<void> {
+    const p = getTenantPrefix(tenantId);
+    await this.redis.incr(`shield:${p}stats:total_valid`);
+  }
+
   async incrementBlocked(vector: string, tenantId?: string): Promise<void> {
     const p = getTenantPrefix(tenantId);
     await this.redis.incr(`shield:${p}stats:total_blocked`);
@@ -27,6 +32,7 @@ export class StatsService {
   async getSummary(tenantId?: string): Promise<{
     total_requests: number;
     total_blocked: number;
+    total_valid: number;
     block_rate_percent: number;
     attacks_by_type: Record<string, number>;
     blocked_ips: number;
@@ -37,6 +43,7 @@ export class StatsService {
     const uptime = started ? Math.floor((Date.now() - Number(started)) / 1000) : 0;
     const total = Number((await this.redis.get(`shield:${p}stats:total_requests`)) ?? 0);
     const blocked = Number((await this.redis.get(`shield:${p}stats:total_blocked`)) ?? 0);
+    const valid = Number((await this.redis.get(`shield:${p}stats:total_valid`)) ?? 0);
     const keys = await this.redis.keys(`shield:${p}stats:attack:*`);
     const attacks_by_type: Record<string, number> = {};
     for (const k of keys) {
@@ -49,6 +56,7 @@ export class StatsService {
     return {
       total_requests: total,
       total_blocked: blocked,
+      total_valid: valid,
       block_rate_percent: block_rate,
       attacks_by_type,
       blocked_ips: blockedKeys.length,

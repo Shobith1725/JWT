@@ -50,6 +50,23 @@ export function jwtShieldMiddleware(
       return;
     }
 
+    // ✅ Token is valid — log the successful request
+    await stats.incrementValid();
+    const ip = ctx.ip ?? 'unknown';
+    const subject = typeof result.payload.sub === 'string' ? result.payload.sub : 'unknown';
+    await attacks.log({
+      timestamp: new Date().toISOString(),
+      event_type: 'JWT_REQUEST_VALID',
+      attack_vector: 'none',
+      source_ip: ip,
+      attempted_algorithm: null,
+      token_fingerprint: tokenFingerprint(raw),
+      user_agent: ctx.userAgent ?? '',
+      blocked: false,
+      detail: `Authenticated as ${subject}`,
+      subject,
+    });
+
     (req as Request & { shieldPayload?: Record<string, unknown> }).shieldPayload = result.payload;
     next();
   };

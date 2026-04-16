@@ -2,6 +2,7 @@ import type { AttackVector } from '../types';
 
 /* Neon-inspired palette for each attack vector */
 const map: Record<string, string> = {
+  none: '#22ff88',
   none_exploit: '#ff3366',
   algorithm_downgrade: '#ff8800',
   kid_injection: '#ffd000',

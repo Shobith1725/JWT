@@ -36,26 +36,49 @@ export default function App() {
   const setEvents = useShieldStore((s) => s.setEvents);
   const setBlockedIps = useShieldStore((s) => s.setBlockedIps);
 
-  useShieldSocket(API_BASE);
+  useShieldSocket(API_BASE, activeApiKey);
 
   const buildHeaders = useCallback((): HeadersInit => {
     return activeApiKey ? { 'X-Shield-Key': activeApiKey } : {};
   }, [activeApiKey]);
 
-  const refreshStatic = useCallback(async () => {
-    const headers = buildHeaders();
-    const [sRes, eRes, bRes] = await Promise.all([
-      fetch(`${API_BASE}/api/stats/summary`, { headers }),
-      fetch(`${API_BASE}/api/stats/events?limit=100`, { headers }),
-      fetch(`${API_BASE}/api/stats/blocked-ips`, { headers }),
-    ]);
-    const s = (await sRes.json()) as StatsSummary;
-    const e = (await eRes.json()) as AttackEvent[];
-    const b = (await bRes.json()) as BlockedIpRow[];
-    setSummary(s);
-    setEvents(e);
-    setBlockedIps(b);
-  }, [setSummary, setEvents, setBlockedIps, buildHeaders]);
+  // Fetch stats + blocked IPs
+  const refreshStats = useCallback(async () => {
+    try {
+      const headers = buildHeaders();
+      const [sRes, bRes] = await Promise.all([
+        fetch(`${API_BASE}/api/stats/summary`, { headers }),
+        fetch(`${API_BASE}/api/stats/blocked-ips`, { headers }),
+      ]);
+      if (sRes.ok) setSummary((await sRes.json()) as StatsSummary);
+      if (bRes.ok) setBlockedIps((await bRes.json()) as BlockedIpRow[]);
+    } catch { /* ignore network errors during polling */ }
+  }, [setSummary, setBlockedIps, buildHeaders]);
+
+  // Fetch events
+  const refreshEvents = useCallback(async () => {
+    try {
+      const headers = buildHeaders();
+      const eRes = await fetch(`${API_BASE}/api/stats/events?limit=100`, { headers });
+      if (eRes.ok) setEvents((await eRes.json()) as AttackEvent[]);
+    } catch { /* ignore */ }
+  }, [setEvents, buildHeaders]);
+
+  // Full refresh on mount and API key change
+  useEffect(() => {
+    void refreshStats();
+    void refreshEvents();
+  }, [activeApiKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll every 5s — in enterprise mode poll everything (WebSocket is disabled),
+  // in non-enterprise mode poll only stats/IPs (events come from WebSocket)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refreshStats();
+      if (activeApiKey) void refreshEvents(); // Enterprise: poll events too
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [refreshStats, refreshEvents, activeApiKey]);
 
   const handleConnect = useCallback(() => {
     const key = apiKeyInput.trim();
@@ -68,10 +91,6 @@ export default function App() {
     setApiKeyInput('');
     localStorage.removeItem('shield-api-key');
   }, []);
-
-  useEffect(() => {
-    void refreshStatic();
-  }, [activeApiKey]); // Only re-fetch when activeApiKey changes, not when refreshStatic changes
 
   return (
     <div className="relative min-h-screen text-slate-100" style={{ background: '#060918' }}>
@@ -215,7 +234,7 @@ export default function App() {
             <IPBlocklist
               rows={blockedIps}
               apiBase={API_BASE}
-              onUnblock={() => void refreshStatic()}
+              onUnblock={() => void refreshStats()}
               extraHeaders={buildHeaders()}
             />
           </div>

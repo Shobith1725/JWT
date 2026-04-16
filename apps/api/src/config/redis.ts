@@ -13,6 +13,21 @@ export function getRedis(): Redis {
       client = new Redis(env.REDIS_URL, {
         maxRetriesPerRequest: 3,
         lazyConnect: false,
+        retryStrategy(times: number) {
+          if (times > 5) {
+            console.error(`[api] Redis connection failed after ${times} attempts. Giving up.`);
+            return null;
+          }
+          return Math.min(times * 200, 2000);
+        },
+      });
+
+      client.on('error', (err) => {
+        console.error('[api] Redis error:', err.message);
+      });
+
+      client.on('connect', () => {
+        console.log('[api] Connected to Redis');
       });
     }
   }

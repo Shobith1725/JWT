@@ -4,9 +4,10 @@
   "packageManager": "pnpm@9.14.2",
   "scripts": {
     "build": "turbo run build",
+    "build:core": "pnpm --filter @jwt-shield/core build",
     "dev": "turbo run dev",
     "test": "turbo run test",
-    "dev:api": "pnpm --filter api dev",
+    "dev:api": "pnpm build:core && pnpm --filter api dev",
     "dev:dashboard": "pnpm --filter dashboard dev"
   },
   "devDependencies": {
